@@ -1,0 +1,31 @@
+# Web framework
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+
+# LLM - Groq (free tier)
+groq==0.9.0
+
+# Embeddings - 100% local, no API cost
+sentence-transformers==3.0.1
+
+# Vector database - local
+chromadb==0.5.3
+
+# PDF processing
+pymupdf==1.24.5
+python-docx==1.1.2
+
+# Database
+sqlalchemy==2.0.30
+aiosqlite==0.20.0
+
+# Utilities
+pydantic==2.7.1
+pydantic-settings==2.3.0
+python-dotenv==1.0.1
+httpx==0.27.0
+
+# Text processing
+tiktoken==0.7.0
+langchain-text-splitters==0.2.1
