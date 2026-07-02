@@ -11,6 +11,8 @@ from typing import List
 import shutil
 import uuid
 import logging
+from app.utils.file_validator import validate_file_bytes
+
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +88,8 @@ async def upload_document(
 
     # Validate file size
     content = await file.read()
+    validate_file_bytes(content, ext)
+
     size_mb = len(content) / (1024 * 1024)
     if size_mb > MAX_FILE_SIZE_MB:
         raise HTTPException(

@@ -8,6 +8,8 @@ from app.services.llm_service import analyse_contract, generate_redlines
 from app.core.config import settings
 import json
 import logging
+from app.services.cache import get_cached_analysis
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,8 @@ async def analyse_document(
     Returns: contract type, parties, risk score, flagged clauses, missing clauses.
     """
     # Check document exists and is ready
+
+    # Check document exists and is ready
     result = await db.execute(
         select(Document).where(Document.id == request.document_id)
     )
@@ -58,6 +62,19 @@ async def analyse_document(
             detail=f"Document is not ready yet. Current status: {doc.status}"
         )
 
+    # Check cache — avoid duplicate Groq calls for the same analysis
+    cached = await get_cached_analysis(db, request.document_id, request.analysis_type)
+    if cached:
+        logger.info(f"Returning cached analysis: {cached.id}")
+        return {
+            "analysis_id": cached.id,
+            "document_id": cached.document_id,
+            "analysis_type": cached.analysis_type,
+            "model_used": cached.model_used,
+            "tokens_used": cached.tokens_used,
+            "result": cached.result,
+            "cached": True,
+        }
     try:
         full_text = get_full_text(request.document_id)
     except FileNotFoundError as e:

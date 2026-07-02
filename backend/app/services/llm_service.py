@@ -4,6 +4,7 @@ from app.models.schemas import ContractSummary, RedlineReport
 from typing import List, Dict, Optional
 import json
 import logging
+from app.utils.json_repair import safe_parse_llm_json
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ LEGAL_SYSTEM_PROMPT = """You are an expert legal analyst and contract review spe
 Your analysis must:
 - Be precise, objective, and legally accurate
 - Cite specific clause locations when possible  
-- Flag risks clearly with severity levels (high/medium/low)
+- Flag risks clearly with severity levels (high/medium/low) //error
 - Provide actionable recommendations
 - Never speculate beyond the document's content
 - Always distinguish between what the document says vs. standard practice
@@ -82,16 +83,21 @@ Focus on: liability caps, indemnification, IP ownership, termination rights, gov
 CONTRACT TEXT:
 {contract_text}"""
 
-QA_PROMPT = """You are a legal research assistant. Answer the question based ONLY on the provided contract excerpts.
-Always cite the page number when referencing specific text.
-If the answer is not in the excerpts, say so clearly — do not speculate.
+QA_PROMPT = """You are a legal research assistant. Answer the question in clear, plain prose.
+
+Rules:
+- Answer directly and conversationally — do NOT return JSON, lists, or structured data
+- Ground every claim in the provided excerpts only — do not speculate
+- Cite page numbers inline naturally, e.g. "According to page 7..."
+- If the answer is not in the excerpts, say so clearly
+- Keep the answer focused and concise
 
 RELEVANT CONTRACT EXCERPTS:
 {context}
 
 QUESTION: {question}
 
-Provide a clear, concise answer with specific citations."""
+Answer in plain prose:"""
 
 
 # ── Analysis functions ────────────────────────────────────────────
@@ -132,7 +138,7 @@ def analyse_contract(full_text: str) -> dict:
             raw = raw[4:]
     raw = raw.strip()
 
-    result = json.loads(raw)
+    result = safe_parse_llm_json(raw)
     result["_tokens_used"] = tokens_used
     result["_model"] = settings.groq_model
     return result
@@ -172,20 +178,16 @@ def generate_redlines(full_text: str, playbook_context: str = "") -> dict:
             raw = raw[4:]
     raw = raw.strip()
 
-    result = json.loads(raw)
+    result = safe_parse_llm_json(raw)
+
     result["_tokens_used"] = response.usage.total_tokens
     result["_model"] = settings.groq_model
     return result
 
 
 def answer_legal_question(question: str, context_chunks: List[Dict]) -> tuple[str, int]:
-    """
-    RAG-based Q&A over contract chunks.
-    Returns (answer_text, tokens_used).
-    """
     client = get_groq_client()
 
-    # Format retrieved chunks with page numbers
     context_parts = []
     for chunk in context_chunks:
         context_parts.append(
@@ -194,13 +196,16 @@ def answer_legal_question(question: str, context_chunks: List[Dict]) -> tuple[st
     context = "\n\n---\n\n".join(context_parts)
 
     response = client.chat.completions.create(
-        model=settings.groq_model_fast,   # faster model for chat
+        model=settings.groq_model_fast,
         messages=[
-            {"role": "system", "content": LEGAL_SYSTEM_PROMPT},
-            {"role": "user", "content": QA_PROMPT.format(
-                context=context,
-                question=question,
-            )},
+            {
+                "role": "system",
+                "content": "You are a legal research assistant. Answer questions in clear, plain prose. Never return JSON or structured data. Always cite page numbers inline."
+            },
+            {
+                "role": "user",
+                "content": QA_PROMPT.format(context=context, question=question)
+            },
         ],
         temperature=0.2,
         max_tokens=1024,

@@ -1,12 +1,13 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.core.database import get_db
-from app.models.db_models import Document, ContractAnalysis
-from app.models.schemas import AnalysisRequest, ContractSummary, RedlineReport
-from app.services.llm_service import analyse_contract, generate_redlines
-from app.core.config import settings
-import json
+from app.models.db_models import Document, ChatSession, ChatMessage
+from app.models.schemas import ChatRequest, ChatResponse, ChatSessionOut
+from app.services.vector_store import retrieve_relevant_chunks
+from app.services.llm_service import answer_legal_question
+from typing import List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,40 +15,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_full_text(document_id: str) -> str:
-    """
-    Read the uploaded file from disk and return raw text.
-    Used for full-document analysis (not RAG — we send everything to the LLM).
-    """
-    from app.services.document_processor import extract_and_chunk
-    from pathlib import Path
-    import os
-
-    # Find the file in uploads dir
-    upload_dir = settings.upload_dir
-    for fname in os.listdir(upload_dir):
-        if fname.startswith(document_id):
-            file_path = upload_dir / fname
-            ext = fname.rsplit(".", 1)[-1].lower()
-            chunks, _ = extract_and_chunk(file_path, ext)
-            # Join all chunks back into full text for analysis
-            return "\n\n".join(c["text"] for c in chunks)
-
-    raise FileNotFoundError(f"File for document {document_id} not found on disk")
-
-
-@router.post("/analyse", response_model=dict)
-async def analyse_document(
-    request: AnalysisRequest,
+@router.post("/session/{document_id}", response_model=ChatSessionOut, status_code=201)
+async def create_session(
+    document_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Run full contract analysis on an uploaded document.
-    Returns: contract type, parties, risk score, flagged clauses, missing clauses.
-    """
-    # Check document exists and is ready
     result = await db.execute(
-        select(Document).where(Document.id == request.document_id)
+        select(Document).where(Document.id == document_id)
     )
     doc = result.scalar_one_or_none()
     if not doc:
@@ -55,112 +29,141 @@ async def analyse_document(
     if doc.status != "ready":
         raise HTTPException(
             status_code=400,
-            detail=f"Document is not ready yet. Current status: {doc.status}"
+            detail=f"Document not ready yet. Status: {doc.status}"
         )
 
-    try:
-        full_text = get_full_text(request.document_id)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-    logger.info(f"Running contract analysis on document {request.document_id}")
-
-    try:
-        if request.analysis_type == "redline":
-            result_data = generate_redlines(
-                full_text,
-                playbook_context=request.playbook_context or "",
-            )
-            analysis_type = "redline"
-        else:
-            # full / risk / summary all use the same analysis call
-            result_data = analyse_contract(full_text)
-            analysis_type = request.analysis_type
-
-    except json.JSONDecodeError as e:
-        logger.error(f"LLM returned invalid JSON: {e}")
-        raise HTTPException(
-            status_code=502,
-            detail="AI model returned malformed response. Please retry."
-        )
-    except Exception as e:
-        logger.error(f"Analysis failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
-    # Save analysis result to DB
-    tokens_used = result_data.pop("_tokens_used", 0)
-    model_used = result_data.pop("_model", settings.groq_model)
-
-    analysis_record = ContractAnalysis(
-        document_id=request.document_id,
-        analysis_type=analysis_type,
-        result=result_data,
-        model_used=model_used,
-        tokens_used=tokens_used,
-    )
-    db.add(analysis_record)
+    session = ChatSession(document_id=document_id)
+    db.add(session)
     await db.commit()
 
-    logger.info(
-        f"Analysis complete — type: {analysis_type}, "
-        f"tokens: {tokens_used}, model: {model_used}"
+    # Reload with messages explicitly loaded — prevents MissingGreenlet error
+    result = await db.execute(
+        select(ChatSession)
+        .where(ChatSession.id == session.id)
+        .options(selectinload(ChatSession.messages))
     )
-
-    return {
-        "analysis_id": analysis_record.id,
-        "document_id": request.document_id,
-        "analysis_type": analysis_type,
-        "model_used": model_used,
-        "tokens_used": tokens_used,
-        "result": result_data,
-    }
+    session = result.scalar_one()
+    return session
 
 
-@router.get("/history/{document_id}")
-async def get_analysis_history(
+@router.get("/session/{session_id}", response_model=ChatSessionOut)
+async def get_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ChatSession)
+        .where(ChatSession.id == session_id)
+        .options(selectinload(ChatSession.messages))
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+@router.get("/sessions/{document_id}", response_model=List[ChatSessionOut])
+async def list_sessions(
     document_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return all past analyses run on a document."""
     result = await db.execute(
-        select(ContractAnalysis)
-        .where(ContractAnalysis.document_id == document_id)
-        .order_by(ContractAnalysis.created_at.desc())
+        select(ChatSession)
+        .where(ChatSession.document_id == document_id)
+        .options(selectinload(ChatSession.messages))
+        .order_by(ChatSession.created_at.desc())
     )
-    analyses = result.scalars().all()
-
-    return [
-        {
-            "analysis_id": a.id,
-            "analysis_type": a.analysis_type,
-            "model_used": a.model_used,
-            "tokens_used": a.tokens_used,
-            "created_at": a.created_at,
-            "result": a.result,
-        }
-        for a in analyses
-    ]
+    return result.scalars().all()
 
 
-@router.get("/result/{analysis_id}")
-async def get_analysis_result(
-    analysis_id: str,
+@router.post("/ask", response_model=ChatResponse)
+async def ask_question(
+    request: ChatRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch a specific analysis result by its ID."""
     result = await db.execute(
-        select(ContractAnalysis).where(ContractAnalysis.id == analysis_id)
+        select(ChatSession)
+        .where(ChatSession.id == request.session_id)
+        .options(selectinload(ChatSession.messages))
     )
-    analysis = result.scalar_one_or_none()
-    if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
 
-    return {
-        "analysis_id": analysis.id,
-        "document_id": analysis.document_id,
-        "analysis_type": analysis.analysis_type,
-        "model_used": analysis.model_used,
-        "tokens_used": analysis.tokens_used,
-        "created_at": analysis.created_at,
-        "result": analysis.result,
-    }
+    user_msg = ChatMessage(
+        session_id=request.session_id,
+        role="user",
+        content=request.message,
+    )
+    db.add(user_msg)
+    await db.commit()
+
+    try:
+        chunks = retrieve_relevant_chunks(
+            document_id=session.document_id,
+            query=request.message,
+            top_k=5,
+        )
+    except Exception as e:
+        logger.error(f"Vector retrieval failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve context")
+
+    if not chunks:
+        raise HTTPException(
+            status_code=404,
+            detail="No relevant content found for your question."
+        )
+
+    try:
+        answer, tokens_used = answer_legal_question(
+            question=request.message,
+            context_chunks=chunks,
+        )
+    except Exception as e:
+        logger.error(f"LLM call failed: {e}")
+        raise HTTPException(status_code=502, detail=f"AI model error: {str(e)}")
+
+    sources = [
+        {
+            "text": c["text"][:300],
+            "page_number": c["page_number"],
+            "score": c["score"],
+        }
+        for c in chunks
+    ]
+
+    assistant_msg = ChatMessage(
+        session_id=request.session_id,
+        role="assistant",
+        content=answer,
+        sources=sources,
+    )
+    db.add(assistant_msg)
+    await db.commit()
+    await db.refresh(assistant_msg)
+
+    logger.info(f"Answer generated — tokens: {tokens_used}")
+
+    return ChatResponse(
+        message_id=assistant_msg.id,
+        answer=answer,
+        sources=sources,
+        session_id=request.session_id,
+    )
+
+
+@router.delete("/session/{session_id}", status_code=204)
+async def delete_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ChatSession).where(ChatSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    await db.delete(session)
+    await db.commit()
+    logger.info(f"Session deleted: {session_id}")
