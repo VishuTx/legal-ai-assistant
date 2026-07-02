@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* Color tokens — strictly monochrome editorial palette */
+  --color-ink: #0A0A0A;
+  --color-off-black: #141414;
+  --color-paper: #FAFAF8;
+  --color-paper-dim: #F2F0EA;
+  --color-hairline: #D8D6CE;
+  --color-slate: #8C8A82;
+
+  /* Font families */
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-ui: var(--font-ui);
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}
+
+::selection {
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/* Utility — uppercase tracked UI label, used everywhere for eyebrows/nav/captions */
+.label-ui {
+  font-family: var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  font-weight: 300;
+}
+
+/* Hairline border helper — consistent 1px borders at low opacity */
+.hairline {
+  border-color: rgba(10, 10, 10, 0.12);
+}
+
+.hairline-light {
+  border-color: rgba(250, 250, 248, 0.18);
+}
+
+/* Reduced motion respect — global override */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Scrollbar — quiet, matches palette */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-paper);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-hairline);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-slate);
+}
+
+/* Focus visibility — accessible, on-brand (ink outline, not browser default blue) */
+:focus-visible {
+  outline: 1.5px solid var(--color-ink);
+  outline-offset: 3px;
+}
+
+html, body {
+  scroll-behavior: auto; /* let Lenis handle it, not native */
+  overflow-x: hidden;
+}
