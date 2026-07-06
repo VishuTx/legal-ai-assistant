@@ -1,6 +1,6 @@
 # L-SF — AI Legal Research Assistant
 
-> Contract review, redlining and legal Q&A — grounded in the documents, cited to the page.
+> Legal-Software.
 
 ---
 
