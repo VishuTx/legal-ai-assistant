@@ -1,9 +1,5 @@
 # L-SF — AI Legal Research Assistant
 
-> Legal-Software.
-
----
-
 ## Overview
 
 L-SF is a full-stack AI-powered legal research platform built for lawyers, law students and in-house legal teams. Upload a contract or legal document and the system analyses every clause, flags risks with severity levels, generates redline suggestions, answers questions about the document with page-cited responses, and searches Indian case law for relevant precedents.
