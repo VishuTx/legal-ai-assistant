@@ -1,12 +1,12 @@
 # L-SF — AI Legal Research Assistant
 
-> Contract review, redlining, and legal Q&A — grounded in your documents, cited to the page.
+> Contract review, redlining and legal Q&A — grounded in the documents, cited to the page.
 
 ---
 
 ## Overview
 
-L-SF is a full-stack AI-powered legal research platform built for lawyers, law students, and in-house legal teams. Upload a contract or legal document, and the system analyses every clause, flags risks with severity levels, generates redline suggestions, answers questions about the document with page-cited responses, and searches Indian case law for relevant precedents.
+L-SF is a full-stack AI-powered legal research platform built for lawyers, law students and in-house legal teams. Upload a contract or legal document and the system analyses every clause, flags risks with severity levels, generates redline suggestions, answers questions about the document with page-cited responses, and searches Indian case law for relevant precedents.
 
 Built on a production-grade RAG (Retrieval-Augmented Generation) architecture — not a tutorial wrapper. Every answer is grounded in retrieved document content, never hallucinated.
 
