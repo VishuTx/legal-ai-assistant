@@ -304,22 +304,6 @@ The RAG pipeline is three steps: retrieve → format → call LLM. A framework a
 
 ---
 
-## Design System
-
-The frontend follows a strict editorial brief — Financial Times meets a high-end law firm meets Apple minimalism.
-
-**Color palette — strictly monochrome:**
-- Ink `#0A0A0A` · Off-black `#141414` · Paper `#FAFAF8` · Paper-dim `#F2F0EA` · Hairline `#D8D6CE` · Slate `#8C8A82`
-
-**Typography:**
-- `Playfair Display` — display headlines, the risk score numeral
-- `Cormorant Garamond` — body copy, AI-generated summaries (italic for accent)
-- `Jost` — all UI labels, navigation, uppercase tracked-wide captions
-
-**Signature element:** The risk score — an oversized Playfair numeral with a thin left border and "RISK INDEX" label in tracked Jost caps. Animates from 0 on scroll into view.
-
----
-
 ## What I Learned
 
 Building this exposed several practical failure modes of RAG systems that tutorial implementations skip:
@@ -331,21 +315,6 @@ Building this exposed several practical failure modes of RAG systems that tutori
 **Async SQLAlchemy has sharp edges.** The `MissingGreenlet` error from lazy-loading relationships after a session closes cost significant debugging time. The fix — `selectinload` on every query returning a model with relationships — is simple once understood, but non-obvious from the SQLAlchemy docs alone.
 
 **Two database files is a real production risk.** Relative SQLite paths resolve to the working directory at startup. Running `uvicorn` from the wrong directory creates a second database file silently. The fix is trivially simple — always `cd backend` first — but the failure mode is completely invisible until data goes missing.
-
----
-
-## Roadmap
-
-- [ ] Chunked map-reduce analysis for full coverage of large documents
-- [ ] True SSE token streaming on the chat endpoint
-- [ ] RAGAS evaluation suite with faithfulness and context recall metrics
-- [ ] Rate limiting per client IP using `slowapi`
-- [ ] Celery + Redis background task queue replacing FastAPI `BackgroundTasks`
-- [ ] Migration from SQLite to PostgreSQL + pgvector for production
-- [ ] Migration from kanoon.dev to official Indian Kanoon API
-- [ ] Contra-case finder — surfaces cases the opposing party would cite
-- [ ] Export to brief — formats case citations for direct use in legal documents
-- [ ] Docker compose for one-command local setup
 
 ---
 
